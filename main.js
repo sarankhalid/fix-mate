@@ -148,7 +148,17 @@ class CopartScraper {
         const thumbnailNextButtonSelector = '.image-galleria-dialog .galleria-thumbnail-controls span.lot-details-sprite.thumbnail-next-image-icon';
 
         try {
-            await this.page.goto(lotUrl, { waitUntil: 'networkidle2' });
+            // Check if page is still attached
+            if (this.page.isClosed()) {
+                console.log("Page is closed, creating new page...");
+                this.page = await this.browser.newPage();
+                await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36');
+            }
+
+            await this.page.goto(lotUrl, { 
+                waitUntil: 'networkidle2',
+                timeout: 60000 
+            });
             await new Promise(resolve => setTimeout(resolve, 3000)); // Give some initial time for the page to render
 
             // Attempt to click the "See all photos" button to open the gallery dialog
@@ -202,9 +212,15 @@ class CopartScraper {
                 }
             } catch (error) {
                 console.log("Timeout waiting for main image in gallery dialog. Gallery might not have fully loaded.");
-                const screenshotPath = "copart_gallery_dialog_fail_screenshot.png";
-                await this.page.screenshot({ path: screenshotPath });
-                console.log(`Screenshot saved to: ${path.resolve(screenshotPath)} (check this for dialog state).`);
+                try {
+                    if (!this.page.isClosed()) {
+                        const screenshotPath = "copart_gallery_dialog_fail_screenshot.png";
+                        await this.page.screenshot({ path: screenshotPath });
+                        console.log(`Screenshot saved to: ${path.resolve(screenshotPath)} (check this for dialog state).`);
+                    }
+                } catch (screenshotError) {
+                    console.log("Could not take screenshot - page may be closed or detached.");
+                }
                 return []; // Exit if the core gallery doesn't load
             }
 
@@ -269,10 +285,14 @@ class CopartScraper {
 
         } catch (error) {
             console.error(`An unexpected error occurred during image extraction: ${error}`);
-            const screenshotPath = "copart_error_screenshot.png";
-            if (this.page) { // Ensure page exists before trying to take a screenshot
-                await this.page.screenshot({ path: screenshotPath });
-                console.log(`Screenshot saved to: ${path.resolve(screenshotPath)}`);
+            try {
+                if (this.page && !this.page.isClosed()) {
+                    const screenshotPath = "copart_error_screenshot.png";
+                    await this.page.screenshot({ path: screenshotPath });
+                    console.log(`Screenshot saved to: ${path.resolve(screenshotPath)}`);
+                }
+            } catch (screenshotError) {
+                console.log("Could not take error screenshot - page may be closed or detached.");
             }
             return [];
         }
