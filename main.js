@@ -210,22 +210,43 @@ class CopartScraper {
                 console.log("! 'See all Photos' button not found or not clickable. Proceeding to extract from main page if available.");
                 
                 // If the button isn't found, we'll try to extract images directly from the main page if any exist
-                const allPageImgElements = await this.page.$$('img');
-                for (const img of allPageImgElements) {
-                    const dataOriginal = await img.evaluate(el => el.getAttribute('data-original'));
-                    const src = dataOriginal || await img.evaluate(el => el.src);
+                try {
+                    // Wait a bit more for page to stabilize
+                    await new Promise(resolve => setTimeout(resolve, 3000));
                     
-                    // Apply general filters for main page images, but don't strictly require "VHL"
-                    if (src && !['thumb', 'small', 'icon', 'preview', 'watermark'].some(f => src.toLowerCase().includes(f.toLowerCase()))) {
-                        let finalSrc = src;
-                        if (src.startsWith('//')) {
-                            finalSrc = 'https:' + src;
+                    // Use a more robust approach to extract images
+                    const imageData = await this.page.evaluate(() => {
+                        const images = [];
+                        const imgElements = document.querySelectorAll('img');
+                        
+                        imgElements.forEach(img => {
+                            const src = img.getAttribute('data-original') || img.src;
+                            if (src && src.includes('copart') && src.includes('VHL')) {
+                                images.push(src);
+                            }
+                        });
+                        
+                        return images;
+                    });
+                    
+                    // Process the extracted image URLs
+                    for (const src of imageData) {
+                        if (src && !['thumb', 'small', 'icon', 'preview', 'watermark'].some(f => src.toLowerCase().includes(f.toLowerCase()))) {
+                            let finalSrc = src;
+                            if (src.startsWith('//')) {
+                                finalSrc = 'https:' + src;
+                            }
+                            imageUrlsSet.add(finalSrc);
                         }
-                        imageUrlsSet.add(finalSrc);
                     }
+                    
+                    console.log(`Extracted ${imageUrlsSet.size} images from main page as fallback.`);
+                    return Array.from(imageUrlsSet).sort(); // Return sorted array of found images
+                    
+                } catch (extractError) {
+                    console.log(`Error extracting images from main page: ${extractError.message}`);
+                    return []; // Return empty array if extraction fails
                 }
-                console.log(`Extracted ${imageUrlsSet.size} images from main page as fallback.`);
-                return Array.from(imageUrlsSet).sort(); // Return sorted array of found images
             }
 
             // After clicking the button, wait for the gallery dialog's main image to be visible
