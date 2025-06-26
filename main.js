@@ -23,21 +23,83 @@ class CopartScraper {
         this.browser = null;
         this.page = null;
         
-        // Browser options similar to Python Selenium options
+        // Browser options optimized for Render deployment
         this.launchOptions = {
             headless: this.headless,
             args: [
                 '--no-sandbox',
+                '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
                 '--disable-gpu',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                '--disable-features=TranslateUI',
+                '--disable-ipc-flooding-protection',
                 '--window-size=1920,1080',
                 '--log-level=3'
             ],
             defaultViewport: {
                 width: 1920,
                 height: 1080
-            }
+            },
+            executablePath: this.getChromePath()
         };
+    }
+
+    getChromePath() {
+        /**
+         * Get the Chrome executable path for different environments
+         */
+        // Check if PUPPETEER_EXECUTABLE_PATH is set (manual override)
+        if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+            return process.env.PUPPETEER_EXECUTABLE_PATH;
+        }
+
+        // Check for Render environment (common paths)
+        const renderPaths = [
+            '/opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux64/chrome',
+            '/opt/render/.cache/puppeteer/chrome/linux-*/chrome-linux/chrome'
+        ];
+
+        const fs = require('fs');
+        const glob = require('glob');
+
+        // Try to find Chrome in Render cache directory
+        for (const pattern of renderPaths) {
+            try {
+                const matches = glob.sync(pattern);
+                if (matches.length > 0 && fs.existsSync(matches[0])) {
+                    console.log(`Found Chrome at: ${matches[0]}`);
+                    return matches[0];
+                }
+            } catch (error) {
+                // Continue to next pattern
+            }
+        }
+
+        // Fallback to system Chrome paths
+        const systemPaths = [
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/google-chrome',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/chromium'
+        ];
+
+        for (const chromePath of systemPaths) {
+            if (fs.existsSync(chromePath)) {
+                console.log(`Found Chrome at: ${chromePath}`);
+                return chromePath;
+            }
+        }
+
+        // Let Puppeteer use its bundled Chrome
+        console.log('Using Puppeteer bundled Chrome');
+        return undefined;
     }
 
     async initialize() {
