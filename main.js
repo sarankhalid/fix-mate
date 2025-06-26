@@ -147,19 +147,58 @@ class CopartScraper {
         const thumbnailImageSelector = '.image-galleria-dialog .p-galleria-thumbnail-item img.p-galleria-img-thumbnail';
         const thumbnailNextButtonSelector = '.image-galleria-dialog .galleria-thumbnail-controls span.lot-details-sprite.thumbnail-next-image-icon';
 
-        try {
-            // Check if page is still attached
-            if (this.page.isClosed()) {
-                console.log("Page is closed, creating new page...");
-                this.page = await this.browser.newPage();
-                await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36');
-            }
+        // Retry mechanism for navigation
+        let navigationSuccess = false;
+        let retryCount = 0;
+        const maxRetries = 3;
 
-            await this.page.goto(lotUrl, { 
-                waitUntil: 'networkidle2',
-                timeout: 60000 
-            });
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Give some initial time for the page to render
+        while (!navigationSuccess && retryCount < maxRetries) {
+            try {
+                retryCount++;
+                console.log(`Navigation attempt ${retryCount}/${maxRetries}...`);
+
+                // Recreate page if needed
+                if (!this.page || this.page.isClosed()) {
+                    console.log("Creating new page...");
+                    this.page = await this.browser.newPage();
+                    await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36');
+                    
+                    // Set additional page configurations
+                    await this.page.setViewport({ width: 1920, height: 1080 });
+                    await this.page.setDefaultNavigationTimeout(60000);
+                    await this.page.setDefaultTimeout(30000);
+                }
+
+                // Navigate with retry logic
+                await this.page.goto(lotUrl, { 
+                    waitUntil: 'domcontentloaded',
+                    timeout: 60000 
+                });
+
+                // Wait for page to stabilize
+                await new Promise(resolve => setTimeout(resolve, 5000));
+                
+                // Check if page loaded successfully by looking for basic elements
+                const pageTitle = await this.page.title();
+                if (pageTitle && !pageTitle.includes('Error') && !pageTitle.includes('404')) {
+                    navigationSuccess = true;
+                    console.log(`✓ Successfully navigated to page: ${pageTitle}`);
+                } else {
+                    throw new Error(`Page failed to load properly. Title: ${pageTitle}`);
+                }
+
+            } catch (error) {
+                console.log(`Navigation attempt ${retryCount} failed: ${error.message}`);
+                if (retryCount >= maxRetries) {
+                    console.error("All navigation attempts failed. Aborting.");
+                    return [];
+                }
+                // Wait before retry
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+
+        try {
 
             // Attempt to click the "See all photos" button to open the gallery dialog
             try {
