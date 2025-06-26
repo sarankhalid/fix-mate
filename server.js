@@ -68,7 +68,7 @@ app.post('/extract-images', async (req, res) => {
         // Initialize scraper if not already done
         if (!scraper) {
             console.log('Initializing Copart scraper...');
-            scraper = new CopartScraper(true);
+            scraper = new CopartScraper(false);
             const initialized = await scraper.initialize();
             if (!initialized) {
                 return res.status(500).json({
