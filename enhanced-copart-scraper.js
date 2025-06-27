@@ -200,27 +200,11 @@ class EnhancedCopartScraper {
         await this.page.setDefaultNavigationTimeout(60000);
         await this.page.setDefaultTimeout(30000);
 
-        // Intercept and modify requests to avoid detection
-        await this.page.setRequestInterception(true);
-        this.page.on('request', (request) => {
-            // Block unnecessary resources to speed up loading
-            const resourceType = request.resourceType();
-            if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
-                // Allow images for our scraping but block others
-                if (resourceType === 'image' && request.url().includes('copart')) {
-                    request.continue();
-                } else if (resourceType !== 'image') {
-                    request.abort();
-                } else {
-                    request.continue();
-                }
-            } else {
-                // Modify headers for main requests
-                const headers = request.headers();
-                headers['sec-ch-ua'] = '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"';
-                request.continue({ headers });
-            }
-        });
+        // Disable request interception to avoid timeout issues
+        // await this.page.setRequestInterception(true);
+        // this.page.on('request', (request) => {
+        //     request.continue();
+        // });
     }
 
     async humanLikeDelay(min = 1000, max = 3000) {
@@ -276,14 +260,14 @@ class EnhancedCopartScraper {
                     await this.setupStealthMode();
                 }
 
-                // Navigate with enhanced options
+                // Navigate with more lenient options to avoid timeout
                 await this.page.goto(lotUrl, { 
-                    waitUntil: ['domcontentloaded', 'networkidle0'],
-                    timeout: 60000 
+                    waitUntil: 'domcontentloaded',
+                    timeout: 90000 
                 });
 
-                // Wait for page to stabilize with human-like delay
-                await this.humanLikeDelay(3000, 5000);
+                // Wait for page to stabilize
+                await this.humanLikeDelay(2000, 3000);
                 
                 // Check if page loaded successfully
                 const pageTitle = await this.page.title();
