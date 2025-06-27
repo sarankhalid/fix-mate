@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const CopartScraper = require('./main.js');
+const EnhancedCopartScraper = require('./enhanced-copart-scraper.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,7 +15,7 @@ let scraper = null;
 // Initialize scraper on server start
 async function initializeScraper() {
     try {
-        scraper = new CopartScraper(true); // headless mode for API
+        scraper = new EnhancedCopartScraper(true); // headless mode for API
         await scraper.initialize();
         console.log('Copart scraper initialized successfully');
     } catch (error) {
@@ -68,7 +68,7 @@ app.post('/extract-images', async (req, res) => {
         // Initialize scraper if not already done
         if (!scraper) {
             console.log('Initializing Copart scraper...');
-            scraper = new CopartScraper(false);
+            scraper = new EnhancedCopartScraper(false);
             const initialized = await scraper.initialize();
             if (!initialized) {
                 return res.status(500).json({
