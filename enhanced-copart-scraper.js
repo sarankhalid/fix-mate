@@ -455,7 +455,7 @@ class EnhancedCopartScraper {
                     console.log("Enhanced gallery dialog might not have fully loaded, continuing with thumbnail extraction...");
                 }
 
-                // Enhanced thumbnail carousel navigation - similar to main.js
+                // Enhanced thumbnail carousel navigation - using exact selectors from main.js
                 console.log("Enhanced collecting images by navigating the thumbnail carousel...");
                 const enhancedThumbnailImageSelector = '.image-galleria-dialog .p-galleria-thumbnail-item img.p-galleria-img-thumbnail';
                 const enhancedThumbnailNextButtonSelector = '.image-galleria-dialog .galleria-thumbnail-controls span.lot-details-sprite.thumbnail-next-image-icon';
@@ -467,13 +467,14 @@ class EnhancedCopartScraper {
                 while (thumbnailPageClicksDone <= thumbnailPageClicksLimit) {
                     // Get all currently visible thumbnails
                     const thumbnailElements = await this.page.$$(enhancedThumbnailImageSelector);
-                    console.log(`Enhanced THUMBNAIL ELEMENTS: ${thumbnailElements.length}`);
+                    console.log(`Enhanced THUMBNAIL ELEMENTS: ${thumbnailElements.length} on page ${thumbnailPageClicksDone + 1}`);
                     
                     if (thumbnailElements.length === 0 && thumbnailPageClicksDone === 0) {
                         console.log("No initial thumbnails found in the enhanced gallery.");
                         break; // No thumbnails to process
                     }
 
+                    // Process all thumbnails on current page
                     for (let i = 0; i < thumbnailElements.length; i++) {
                         try {
                             const thumbSrc = await thumbnailElements[i].evaluate(el => el.src);
@@ -490,6 +491,7 @@ class EnhancedCopartScraper {
 
                                 if (!imageUrlsSet.has(fullSizeThumbUrl)) {
                                     imageUrlsSet.add(fullSizeThumbUrl);
+                                    console.log(`Enhanced: Added image ${imageUrlsSet.size}: ${fullSizeThumbUrl.split('/').pop()}`);
                                 }
 
                                 // Store current source to detect change on next iteration
@@ -503,31 +505,61 @@ class EnhancedCopartScraper {
 
                     // Try to find and click the thumbnail 'next page' button with human-like behavior
                     try {
-                        await this.page.waitForSelector(enhancedThumbnailNextButtonSelector, { timeout: 10000 });
+                        // Wait a bit before looking for next button
+                        await this.humanLikeDelay(500, 1000);
                         
-                        // Human-like interaction for next button
                         const nextButton = await this.page.$(enhancedThumbnailNextButtonSelector);
                         if (nextButton) {
-                            const buttonBox = await nextButton.boundingBox();
-                            if (buttonBox) {
-                                await this.humanLikeMouseMovement(this.page, 
-                                    buttonBox.x + buttonBox.width / 2, 
-                                    buttonBox.y + buttonBox.height / 2
-                                );
-                                await this.humanLikeDelay(300, 700);
-                                await nextButton.click();
-                                await this.humanLikeDelay(1500, 2500); // Wait for thumbnail carousel to slide
+                            // Check if button is visible and clickable
+                            const isVisible = await nextButton.evaluate(el => {
+                                const rect = el.getBoundingClientRect();
+                                const style = window.getComputedStyle(el);
+                                return rect.width > 0 && rect.height > 0 && 
+                                       style.visibility !== 'hidden' && 
+                                       style.display !== 'none' &&
+                                       style.opacity !== '0';
+                            });
+
+                            if (isVisible) {
+                                console.log(`Enhanced: Clicking thumbnail next button (page ${thumbnailPageClicksDone + 1})`);
+                                
+                                const buttonBox = await nextButton.boundingBox();
+                                if (buttonBox) {
+                                    await this.humanLikeMouseMovement(this.page, 
+                                        buttonBox.x + buttonBox.width / 2, 
+                                        buttonBox.y + buttonBox.height / 2
+                                    );
+                                    await this.humanLikeDelay(300, 700);
+                                    await nextButton.click();
+                                    await this.humanLikeDelay(1500, 2500); // Wait for thumbnail carousel to slide
+                                } else {
+                                    console.log("Enhanced: Next button found but no bounding box, trying direct click");
+                                    await nextButton.click();
+                                    await this.humanLikeDelay(1500, 2500);
+                                }
+                            } else {
+                                console.log("Enhanced: Next button found but not visible/clickable. End of thumbnails.");
+                                break;
                             }
+                        } else {
+                            console.log("Enhanced: Thumbnail 'next page' button not found. Assuming end of thumbnail gallery.");
+                            break; // No more thumbnail pages
                         }
                     } catch (error) {
-                        console.log("Enhanced: Thumbnail 'next page' button not found or not clickable. Assuming end of thumbnail gallery.");
+                        console.log(`Enhanced: Error with thumbnail next button: ${error.message}. Assuming end of thumbnail gallery.`);
                         break; // No more thumbnail pages
                     }
 
                     thumbnailPageClicksDone++;
+                    
+                    // Safety check - if we've collected expected number of images, stop
+                    if (totalImagesExpected > 0 && imageUrlsSet.size >= totalImagesExpected) {
+                        console.log(`Enhanced: Collected expected number of images (${totalImagesExpected}), stopping.`);
+                        break;
+                    }
                 }
 
-                console.log(`Enhanced: Finished iterating all galleries. Collected ${imageUrlsSet.size} unique image URLs.`);
+                console.log(`Enhanced: Finished iterating ${thumbnailPageClicksDone + 1} thumbnail pages. Collected ${imageUrlsSet.size} unique image URLs.`);
 
             } catch (error) {
                 console.log(`Enhanced gallery extraction error: ${error.message}`);
