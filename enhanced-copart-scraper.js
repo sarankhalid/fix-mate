@@ -309,9 +309,10 @@ class EnhancedCopartScraper {
             await this.page.waitForSelector('img', { timeout: 30000 });
             await this.humanLikeDelay(2000, 3000);
 
-            // Try multiple selectors for the "See all photos" button
+            // Try multiple selectors for the "See all photos" button - using exact selector from main.js
             let seeAllPhotosButton = null;
             const selectors = [
+                'span.p-cursor-pointer.p-fs-14.see-all-photos-block', // Exact selector from main.js
                 'button:contains("See all")',
                 '.see-all-photos-block',
                 '[data-testid="see-all-photos"]',
@@ -324,7 +325,7 @@ class EnhancedCopartScraper {
                     await this.page.waitForSelector(selector, { timeout: 5000 });
                     seeAllPhotosButton = await this.page.$(selector);
                     if (seeAllPhotosButton) {
-                        console.log(`Found "See all photos" button with selector: ${selector}`);
+                        console.log(`Enhanced: Found "See all photos" button with selector: ${selector}`);
                         break;
                     }
                 } catch (e) {
@@ -349,8 +350,53 @@ class EnhancedCopartScraper {
                 console.log("! 'See all Photos' button not found. Extracting images from main page...");
             }
 
-            // Enhanced image extraction
+            // Enhanced image extraction - focus only on vehicle images
             const imageData = await this.page.evaluate(() => {
+                // Helper function to identify vehicle images
+                function isVehicleImage(src) {
+                    // Must contain copart image server domains
+                    const hasCopartDomain = src.includes('cs.copart.com') || 
+                                          src.includes('vis.copart.com') || 
+                                          (src.includes('copart.com') && src.includes('VHL'));
+                    
+                    if (!hasCopartDomain) return false;
+                    
+                    // Exclude non-vehicle images
+                    const excludePatterns = [
+                        '/content/',           // Site content images
+                        '.svg',               // SVG icons/flags
+                        '.gif',               // Animated gifs (usually ads)
+                        'banner',             // Banner ads
+                        'logo',               // Logos
+                        'flag',               // Country flags
+                        'icon',               // Icons
+                        'sprite',             // CSS sprites
+                        'bg_',                // Background images
+                        'button',             // Button images
+                        'form-dots',          // Form decorations
+                        'registration-',      // Registration related images
+                        '/lg.php',            // Ad delivery scripts
+                        'delivery',           // Ad delivery
+                        'campaignid'          // Campaign/ad related
+                    ];
+                    
+                    const isExcluded = excludePatterns.some(pattern => 
+                        src.toLowerCase().includes(pattern.toLowerCase())
+                    );
+                    
+                    if (isExcluded) return false;
+                    
+                    // Must have vehicle image characteristics
+                    const hasVehiclePattern = src.includes('_ful.jpg') || 
+                                            src.includes('_hrs.jpg') || 
+                                            src.includes('_thb.jpg') || 
+                                            src.includes('_sm.jpg') || 
+                                            src.includes('_l.jpg') ||
+                                            (src.includes('cs.copart.com') && src.includes('.jpg'));
+                    
+                    return hasVehiclePattern;
+                }
+                
                 const images = [];
                 const imgElements = document.querySelectorAll('img');
                 
@@ -359,7 +405,7 @@ class EnhancedCopartScraper {
                                img.getAttribute('data-src') || 
                                img.getAttribute('src');
                     
-                    if (src && (src.includes('copart') || src.includes('VHL'))) {
+                    if (src && isVehicleImage(src)) {
                         // Convert to full size URL
                         let fullSrc = src;
                         if (src.startsWith('//')) {
@@ -382,45 +428,109 @@ class EnhancedCopartScraper {
             // Add extracted images to set
             imageData.forEach(url => imageUrlsSet.add(url));
 
-            // If gallery is open, try to navigate through thumbnails
+            // Enhanced gallery dialog extraction - similar to main.js but with stealth
             try {
-                const thumbnails = await this.page.$$(thumbnailImageSelector);
-                if (thumbnails.length > 0) {
-                    console.log(`Found ${thumbnails.length} thumbnails. Extracting full-size URLs...`);
+                // Wait for the gallery dialog's main image to be visible
+                let totalImagesExpected = 0;
+
+                try {
+                    await this.page.waitForSelector('#zoomImgElement', { visible: true, timeout: 30000 });
+                    console.log("Enhanced gallery dialog loaded: Main image element detected.");
+
+                    // Try to get the total number of images from the "X of Y" counter
+                    try {
+                        await this.page.waitForSelector('span.nav-count', { visible: true, timeout: 30000 });
+                        const navText = await this.page.$eval('span.nav-count', el => el.textContent);
+                        const match = navText.match(/(\d+)\s+of\s+(\d+)/);
+                        if (match) {
+                            totalImagesExpected = parseInt(match[2]);
+                            console.log(`Enhanced detection: ${totalImagesExpected} images in the gallery.`);
+                        } else {
+                            console.log("Could not parse total image count from enhanced gallery navigation text.");
+                        }
+                    } catch (error) {
+                        console.log("Timeout waiting for enhanced gallery navigation count element.");
+                    }
+                } catch (error) {
+                    console.log("Enhanced gallery dialog might not have fully loaded, continuing with thumbnail extraction...");
+                }
+
+                // Enhanced thumbnail carousel navigation - similar to main.js
+                console.log("Enhanced collecting images by navigating the thumbnail carousel...");
+                const enhancedThumbnailImageSelector = '.image-galleria-dialog .p-galleria-thumbnail-item img.p-galleria-img-thumbnail';
+                const enhancedThumbnailNextButtonSelector = '.image-galleria-dialog .galleria-thumbnail-controls span.lot-details-sprite.thumbnail-next-image-icon';
+                
+                const thumbnailPrevSrcHolder = {}; // Object to hold prev_src for each thumbnail to detect change
+                let thumbnailPageClicksDone = 0;
+                const thumbnailPageClicksLimit = Math.max(Math.floor(totalImagesExpected / 8), 5); // At least 5 attempts
+
+                while (thumbnailPageClicksDone <= thumbnailPageClicksLimit) {
+                    // Get all currently visible thumbnails
+                    const thumbnailElements = await this.page.$$(enhancedThumbnailImageSelector);
+                    console.log(`Enhanced THUMBNAIL ELEMENTS: ${thumbnailElements.length}`);
                     
-                    for (let i = 0; i < thumbnails.length; i++) {
+                    if (thumbnailElements.length === 0 && thumbnailPageClicksDone === 0) {
+                        console.log("No initial thumbnails found in the enhanced gallery.");
+                        break; // No thumbnails to process
+                    }
+
+                    for (let i = 0; i < thumbnailElements.length; i++) {
                         try {
-                            const thumbnail = thumbnails[i];
-                            await this.humanLikeDelay(500, 1000);
-                            
-                            // Click thumbnail to load full image
-                            await thumbnail.click();
-                            await this.humanLikeDelay(1000, 2000);
-                            
-                            // Extract the main image URL
-                            const mainImageUrl = await this.page.evaluate(() => {
-                                const mainImg = document.querySelector('.gallery-main-image img, .p-galleria-item img');
-                                if (mainImg) {
-                                    let src = mainImg.src || mainImg.getAttribute('data-src');
-                                    if (src && src.startsWith('//')) {
-                                        src = 'https:' + src;
-                                    }
-                                    return src;
+                            const thumbSrc = await thumbnailElements[i].evaluate(el => el.src);
+                            if (thumbSrc) {
+                                let finalThumbSrc = thumbSrc;
+                                if (thumbSrc.startsWith('//')) {
+                                    finalThumbSrc = 'https:' + thumbSrc;
                                 }
-                                return null;
-                            });
-                            
-                            if (mainImageUrl) {
-                                imageUrlsSet.add(mainImageUrl);
+
+                                // Convert thumbnail URL to full-size URL
+                                let fullSizeThumbUrl = finalThumbSrc.replace('_thb.jpg', '_ful.jpg');
+                                fullSizeThumbUrl = fullSizeThumbUrl.replace('_sm.jpg', '_ful.jpg');
+                                fullSizeThumbUrl = fullSizeThumbUrl.replace('_l.jpg', '_ful.jpg');
+
+                                if (!imageUrlsSet.has(fullSizeThumbUrl)) {
+                                    imageUrlsSet.add(fullSizeThumbUrl);
+                                }
+
+                                // Store current source to detect change on next iteration
+                                thumbnailPrevSrcHolder[i] = thumbSrc;
                             }
                         } catch (error) {
-                            console.log(`Error processing thumbnail ${i}: ${error.message}`);
-                            continue;
+                            console.log(`Enhanced: Stale element reference for thumbnail ${i}. Skipping this thumbnail for now.`);
+                            continue; // Skip to next thumbnail
                         }
                     }
+
+                    // Try to find and click the thumbnail 'next page' button with human-like behavior
+                    try {
+                        await this.page.waitForSelector(enhancedThumbnailNextButtonSelector, { timeout: 10000 });
+                        
+                        // Human-like interaction for next button
+                        const nextButton = await this.page.$(enhancedThumbnailNextButtonSelector);
+                        if (nextButton) {
+                            const buttonBox = await nextButton.boundingBox();
+                            if (buttonBox) {
+                                await this.humanLikeMouseMovement(this.page, 
+                                    buttonBox.x + buttonBox.width / 2, 
+                                    buttonBox.y + buttonBox.height / 2
+                                );
+                                await this.humanLikeDelay(300, 700);
+                                await nextButton.click();
+                                await this.humanLikeDelay(1500, 2500); // Wait for thumbnail carousel to slide
+                            }
+                        }
+                    } catch (error) {
+                        console.log("Enhanced: Thumbnail 'next page' button not found or not clickable. Assuming end of thumbnail gallery.");
+                        break; // No more thumbnail pages
+                    }
+
+                    thumbnailPageClicksDone++;
                 }
+
+                console.log(`Enhanced: Finished iterating all galleries. Collected ${imageUrlsSet.size} unique image URLs.`);
+
             } catch (error) {
-                console.log(`Error processing thumbnails: ${error.message}`);
+                console.log(`Enhanced gallery extraction error: ${error.message}`);
             }
 
             console.log(`Enhanced extraction completed. Found ${imageUrlsSet.size} unique image URLs.`);
